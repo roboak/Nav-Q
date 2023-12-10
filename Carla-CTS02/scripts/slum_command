@@ -1,0 +1,125 @@
+username="$USER"
+IMAGE=/netscratch/$USER/vanilla.sqsh
+WORKDIR="/netscratch/sinha/Q-DRL-for-CFN"
+srun \
+  --container-image=$IMAGE \
+  -p RTX3090	 \
+  --container-workdir=$WORKDIR\
+  --container-mounts=/netscratch/$USER:/netscratch/$USER,/ds:/ds:ro,/home/sinha:/home/sinha \
+  --ntasks=1 \
+  --cpus-per-gpu=4 \
+  --gpus-per-task=1 \
+  --mem=70GB \
+  --export="NCCL_SOCKET_IFNAME=bond,NCCL_IB_HCA=mlx5" \
+  --no-container-remap-root \
+  --job-name trial \
+  --time=03-00:00:00 \
+  --pty bash
+  /netscratch/sinha/c_qns/bin/python3 train.py --run_id q_4_l_1 --latent_space_dim 32 --quantum --n_layers 1 --n_qubits 4 --port 2049 --seed 54
+  /netscratch/sinha/c_qns/bin/python3 train.py --run_id trial --latent_space_dim --port 2049 --seed 54
+
+   /netscratch/sinha/c_qns/bin/python3 eval_model.py --latent_space_dim=32 --checkpoint _out/a2c/06072023_140745_q_4_l_1_ls_32/model/a2c_entropy_10000.pth --port=2000 --a2c --deter
+
+/netscratch/sinha/c_qns/bin/python3 train_a2c.py --run_id Q_A2c_q_4_l_3_ls_32_noise_gates --latent_space_dim 32 --quantum --n_layers 2 --n_qubits 4 --port 2049 --gate_noise --seed 54
+
+
+
+   /netscratch/sinha/c_qns/bin/python3 eval_a2c.py --latent_space_dim=6 --checkpoint _out/a2c/q_a2c_ls_6_08042023_140141/model/a2c_entropy_5000.pth --port=2300
+
+    /netscratch/sinha/c_qns/bin/python3 train_a2c.py --run_id Q_A2c_q_2_l_1_ls_6_param_shift --latent_space_dim 6 --quantum --n_layers 1 --n_qubits 2 --port 2039 --checkpoint _out/a2c/a2c_08042023_140141/model/a2c_0.11837722245781505_189.pth
+
+  /netscratch/sinha/c_qns/bin/python3 eval_a2c.py --latent_space_dim=32 --checkpoint _out/a2c/C_A2C_ls_32_multi_runs/07262023_123956_ls_32_seed_67/model/a2c_entropy_5000.pth --port=2513 --deter
+
+
+
+
+  --pty bash
+
+  /netscratch/sinha/c_qns/bin/python3 train_a2c.py --run_id Q_A2c_q_4_l_2_ls_32 --latent_space_dim 32 --quantum --n_layers 2 --n_qubits 4 --port 2039
+
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_a2c.py --run_id a2c_ls_6 --seed 53 --latent_space_dim 6 --port 2901
+
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 eval_a2c.py --latent_space_dim=32 --checkpoint _out/a2c/Q_A2C_ls_32_fix_ec_0_lr_0.0005/06072023_141405_q_6_l_1_ls_32/model/a2c_0.17458606834775298_9986.pth  --port=2509 --deter
+
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_a2c.py --run_id ansatz_01_q_6_l_2_ls_32 --latent_space_dim 32 --quantum --n_layers 2 --n_qubits 6 --port 2501 --checkpoint _out/a2c/Q_A2C_ls_32_fix_ec_0_lr_0.0005/06202023_183705_q_6_l_2_ls_32/model/a2c_0.1743805114403277_6440.pth
+
+
+
+
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_a2c.py --run_id Q_A2c_q_4_l_2_ls_32 --latent_space_dim 32 --quantum --n_layers 2 --n_qubits 4 --port 2039
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_PPO.py --run_id PPO_ls_32_fix_lr_scheduler_450 --latent_space_dim 32
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_a2c.py --latent_space_dim 32 --port 2085 --run_id A2C_ls_32_fix_ec_0_lr_0.0005
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_PPO.py --run_id PPO_ls_32_fix_lr_scheduler_450 --latent_space_dim 32
+
+
+
+   /home/sinha/miniconda3/envs/qns/bin/python3 train_a2c.py --latent_space_dim 32 --port 2083 --run_id A2C_ls_32_fix_ec_0
+
+
+
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_PPO.py --run_id PPO_ls_32_fix --latent_space_dim 32
+  --pty bash
+   /home/sinha/miniconda3/envs/qns/bin/python3 eval_PPO.py --checkpoint _out/ppo/PPO_lr_sched_05272023_143549/model/ppo_marl_775.pth --latent_space_dim=256 --port 2021 --deter
+
+
+/home/sinha/miniconda3/envs/qns/bin/python3 train_PPO.py --run_id PPO_ls_64 --latent_space_dim 64
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_PPO.py --run_id Q_PPO_q_4_ls_64_l_2 --latent_space_dim 64 --quantum --n_layers 2 --n_qubits 4
+  /home/sinha/miniconda3/envs/qns/bin/python3 train_a2c.py --run_id Q_A2C_q_4_ls_64_l_2 --latent_space_dim 64 --quantum --n_layers 2 --n_qubits 4 --port 2017
+  /home/sinha/miniconda3/envs/qns/bin/python3 eval_a2c.py --checkpoint _out/a2c/A2C_ls_64_05262023_141040/model/a2c_entropy_4980.pth --latent_space_dim=64 --port=2202
+  /home/sinha/miniconda3/envs/qns/bin/python3 eval_PPO.py --checkpoint _out/ppo/PPO_ls_sched_ls_128_05282023_135730/model/ppo_marl_987.pth --latent_space_dim=128 --port 2019
+
+/home/sinha/miniconda3/envs/chen_q/bin/python3 main.py
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 eval_a2c.py --checkpoint _out/a2c/A2C_ls_128_05262023_124211/model/a2c_entropy_4980.pth --latent_space_dim=128 --port=2201
+  --pty bash
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 eval_a2c.py --latent_space_dim=32 --port=2005 --checkpoint _out/a2c/04112023_142718/model/a2c_entropy_4000.pth --deter
+
+
+  /home/sinha/miniconda3/envs/qns/bin/python3 eval_a2c.py --checkpoint _out/a2c/A2C_ls_128_05262023_124211/model/a2c_entropy_4980.pth --latent_space_dim=128 --port=2005 --quantum --n_layers 1 --n_qubits 6
+
+
+
+--no-container-remap-root
+  --time=5-00:00 \
+  --container-save=/netscratch/$USER/carla_v2_torch_pennylane_v4.sqsh \
+
+
+
+
+
+
+
+/home/sinha/miniconda3/envs/qns/bin/python3 eval_a2c.py --latent_space_dim=6 --checkpoint _out/a2c/a2c_08042023_140141/model/a2c_entropy_5000.pth --port=2203
+ /home/sinha/miniconda3/envs/qns/bin/python3 eval_a2c.py --latent_space_dim=6 --checkpoint _out/a2c/a2c_08042023_140141/model/a2c_entropy_5000.pth --port=2203
+
+
+username="$USER"
+IMAGE=/netscratch/$USER/vanilla.sqsh
+WORKDIR="/netscratch/sinha/Q-DRL-for-CFN"
+srun \
+  --container-image=$IMAGE \
+  -p V100-32GB     \
+  --container-workdir=$WORKDIR\
+  --container-mounts=/netscratch/$USER:/netscratch/$USER,/ds:/ds:ro,/home/sinha:/home/sinha,/netscratch/software:/netscratch/software:ro \
+  --ntasks=1 \
+  --cpus-per-gpu=1 \
+  --gpus-per-task=1 \
+  --mem=70GB \
+  --export="NCCL_SOCKET_IFNAME=bond,NCCL_IB_HCA=mlx5" \
+  --no-container-remap-root \
+  --job-name debugger \
+  start_ide_server.sh
+
+
+
+  Changes:
+  1. Change number of steps
+  2. Change training scenarios
+  3.
