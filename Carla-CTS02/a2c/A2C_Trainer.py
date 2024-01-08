@@ -1,35 +1,25 @@
+from multiprocessing import Process
+import yaml
+from a2c.A2C_Base import A2CAbstract
+from pathlib import Path
 import time
 import os
 import numpy as np
-from multiprocessing import Process
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import trange
-
-from a2c.A2C_Base import A2CAbstract
 from a2c.classical_model.a2c_model import A2C
 from config import Config
 from benchmark.environment import GIDASBenchmark
 from a2c.quantum_model.q_a2c_model import Q_A2C
-from torch.distributions import Categorical
-
-from utils.utils import clear_checkpoints, run_server
+from utils.utils import get_run_dir, run_server
 
 
 class A2CTrainer(A2CAbstract):
-    def __init__(self, args, device, run_dir):
 
-        ##############################################################
-        # Define class variables
+    def __init__(self, args):
+
         self.args = args
-        self.run_dir = run_dir
-        self.device = device
-        self.model = None
-        self.env = None
-        self.last_save = 0
-        self.latent_space_dim = args.latent_space_dim
-        self.display = args.display
         ##############################################################
         # Start CARLA server
         if (not args.debug):
@@ -40,6 +30,12 @@ class A2CTrainer(A2CAbstract):
         ##############################################################
         #Setup Environment
         self.env = GIDASBenchmark(port=args.port)
+
+        ##############################################################
+        # Choose between GPU or CPU
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu")
+        print(self.device, " being used")
 
         ##############################################################
         #Initialise RL model
@@ -58,23 +54,15 @@ class A2CTrainer(A2CAbstract):
         if load_path:
             # Checkpoint name can be saved as following "_xx_xx_xx_episode_num.pth "
             self.current_episode = int(load_path.split(os.sep)[-1].split('_')[-1].split('.')[0])
-            if (str(device) == "cpu"):
+            if (str(self.device) == "cpu"):
                 self.model.load_state_dict(torch.load(load_path, map_location=torch.device("cpu")))
             else:
                 self.model.load_state_dict(torch.load(load_path))
 
         ##############################################################
         # Setting up logging directories within run_dir
-        #TODO: Fix me
-
-        # log_filename = run_dir + "/run.log"
-        # print(log_filename)
-        # file = open(log_filename, "w")
-        # file.write(str(vars(Config)) + "\n")
-        # file.write(str(vars(args)) + "\n")
-        # file.close()
-
-        # Summary_Dir will contain logs of tensorboard
+        run_dir = get_run_dir(args)
+        # Summary_Dir will contain tensorboard logs
         summary_dir = os.path.join(run_dir, "summary")
         if not os.path.exists(summary_dir):
             os.mkdir(summary_dir)
@@ -82,22 +70,34 @@ class A2CTrainer(A2CAbstract):
         # Setting up tensorboard
         self.writer = SummaryWriter(log_dir=summary_dir)
 
-        # Path to save model
+        # Path to save checkpoints
         self.model_path = os.path.join(run_dir, "model")
         if not os.path.exists(self.model_path):
             os.mkdir(self.model_path)
 
+        ##############################################################
+        # Save the args and config parameters for future references
+
+        config_dict = {key: value for key, value in vars(Config).items() if
+                       not callable(value) and not key.startswith("__")}
+        args.config_dict = config_dict
+        n_params = {}
+        n_params["shared_network"] = sum(p.numel() for p in self.model.shared_network.parameters())
+        n_params["actor_network"] = sum(p.numel() for p in self.model.action_policy.parameters())
+        n_params["critic_network"] = sum(p.numel() for p in self.model.value_network.parameters())
+
+        args.params = n_params
+        file = open(os.path.join(run_dir, "experiment.yaml"), "w")
+        yaml.dump(args, file)
+        file.close()
+
+    def _clear_checkpoints(self, model_dir):
+        saved_models = sorted(Path(model_dir).iterdir(), key=os.path.getmtime)
+        while len(saved_models) > Config.max_checkpoints:
+            x = saved_models.pop(0)
+            os.remove(x)
 
     def _calc_loss(self, rewards, values, log_probs, entropies, device):
-        '''
-        Calculates A2C Actor and Critic losses
-        :param rewards: list of reversed rewards in the previous episode such that the 1st element -> reward in last step
-        :param values: list of reversed values in the previous episode such that the 1st element -> value of action in last step
-        :param log_probs: list of reversed log probs in the previous episode
-        :param entropies: list of reversed entropies in the previous episode
-        :param device:
-        :return: mean(critic loss), mean(actor loss), total loss =  mean(critic loss) + mean(actor loss) - mean(entropies)
-        '''
         R = 0
         returns = []
         for r in rewards:
@@ -110,7 +110,6 @@ class A2CTrainer(A2CAbstract):
 
         # Returns vector is normalised to have 0 mean and 1 std
         returns = (returns - returns.mean()) / (returns.std() + eps)
-        # returns = returns.cuda().type(torch.cuda.FloatTensor)
         returns = returns.type(torch.FloatTensor).to(device)
 
         policy_losses = []
@@ -127,21 +126,8 @@ class A2CTrainer(A2CAbstract):
                Config.a2c_entropy_coef * torch.stack(entropies).mean()
         return loss, sum(policy_losses) / len(policy_losses), sum(value_losses) / len(value_losses)
 
-
-    def _checkpoint(self, prev_sum_ep_rew):
-        '''
-        Save the model as a checkpoint if the model performed well.
-        :param prev_sum_ep_rew: Sum of rewards attained in the previous episode
-        :return: None
-        '''
-        if self.current_episode - self.last_save > Config.model_checkpointing_interval and prev_sum_ep_rew > 0:
-            last_save = self.current_episode
-            torch.save(self.model.state_dict(),
-                       os.path.join(self.model_path,
-                                    "a2c_{}_{}.pth".format(prev_sum_ep_rew, self.current_episode)))
-            clear_checkpoints(model_dir=self.model_path)
-
-    def _log_metrics(self, policy_loss, value_loss, total_episode_reward, dist, entropy, goal, acccident, nearmiss, scenario, ped_speed, ped_distance):
+    def _log_metrics(self, writer, current_episode, policy_loss, value_loss, total_episode_reward, dist, entropy, goal,
+                     acccident, nearmiss, scenario, ped_speed, ped_distance):
         '''
         Logging the required metrics in tensorboard
         :param policy_loss: Actor Loss
@@ -153,33 +139,32 @@ class A2CTrainer(A2CAbstract):
         :param nearmiss: Boolean to store if there were near misses in the last episode
         :return: None
         '''
-        self.writer.add_scalar(tag="Loss/Policy", scalar_value=policy_loss, global_step=self.current_episode)
-        self.writer.add_scalar(tag="Loss/Critic", scalar_value=value_loss, global_step=self.current_episode)
-        self.writer.add_scalar(tag="Return/Reward", scalar_value=total_episode_reward, global_step=self.current_episode)
-        self.writer.add_scalar(tag="Stats/Distance", scalar_value=dist, global_step=self.current_episode)
-        self.writer.add_scalar(tag="Stats/Entropy", scalar_value=entropy, global_step=self.current_episode)
+        writer.add_scalar(tag="Loss/Policy", scalar_value=policy_loss, global_step=current_episode)
+        writer.add_scalar(tag="Loss/Critic", scalar_value=value_loss, global_step=current_episode)
+        writer.add_scalar(tag="Return/Reward", scalar_value=total_episode_reward, global_step=current_episode)
+        writer.add_scalar(tag="Stats/Distance", scalar_value=dist, global_step=current_episode)
+        writer.add_scalar(tag="Stats/Entropy", scalar_value=entropy, global_step=current_episode)
 
-        print("Episode: {}, Scenario: {}, Pedestrian Speed: {:.2f}m/s, Ped_distance: {:.2f}m".format(
-            self.current_episode, scenario, ped_speed, ped_distance))
+        print("Episode: {}, Scenario: {}, Pedestrian Speed: {:.2f}m/s, Ped_distance: {:.2f}m".format(current_episode,
+                                                                                                     scenario,
+                                                                                                     ped_speed,
+                                                                                                     ped_distance))
         print('Goal reached: {}, Accident: {}, Nearmiss: {}'.format(goal, acccident, nearmiss))
         print("Policy Loss: {:.4f}, Value Loss: {:.4f}, Entropy: {:.4f}, Reward: {:.4f}, Dist_car: {}".format(
             policy_loss.item(), value_loss.item(),
             entropy, total_episode_reward, dist))
 
-
     def run_training(self):
-        '''
-        Method to train the RL model
-        :return: None
-        '''
+        t0 = time.time()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=Config.a2c_lr)
+        last_save = 0
+        ##############################################################
+        # Simulation loop
         max_episodes = Config.train_episodes
         print("Total training episodes: {}".format(max_episodes))
-        t0 = time.time()
+
         while self.current_episode < max_episodes:
-            t0 = time.time()
-            training_info, trajectory_info = self._simulate_trajectory(num_steps=Config.num_steps, model=self.model, env=self.env, device=self.device, latent_space_dim=self.latent_space_dim, display=self.display)
-            # print("time taken for simulation: ", time.time()-t0)
+            training_info, trajectory_info = self._simulate_trajectory(num_steps=Config.num_steps, model=self.model, env=self.env, device=self.device, latent_space_dim=32)
             rewards = training_info["rewards"]
             values = training_info["values"]
             log_probs = training_info["log_probs"]
@@ -188,21 +173,29 @@ class A2CTrainer(A2CAbstract):
             nearmiss = trajectory_info["nearmiss"]
             dist = trajectory_info["dist"]
             total_episode_reward = trajectory_info["total_episode_reward"]
-
             loss, policy_loss, value_loss = self._calc_loss(rewards, values, log_probs, entropies, self.device)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            self._checkpoint(total_episode_reward)
-            self._log_metrics(policy_loss, value_loss,
-                              total_episode_reward, dist, torch.stack(entropies).mean(), trajectory_info["goal"],
-                              acccident, nearmiss, trajectory_info['scenario'], trajectory_info['ped_speed'],
-                              trajectory_info['ped_dist'])
+
+            # Log metrics
+            self._log_metrics(self.writer, self.current_episode, policy_loss, value_loss,
+                         total_episode_reward, dist, torch.stack(entropies).mean(), trajectory_info["goal"],
+                         acccident, nearmiss, trajectory_info['scenario'], trajectory_info['ped_speed'],
+                         trajectory_info['ped_dist'])
+
+            # Model checkpointing
+            if self.current_episode - last_save > Config.model_checkpointing_interval and total_episode_reward > 0:
+                last_save = self.current_episode
+                torch.save(self.model.state_dict(),
+                           os.path.join(self.model_path,
+                                        "a2c_{}_{}.pth".format(total_episode_reward, self.current_episode)))
+                self._clear_checkpoints(model_dir=self.model_path)
+
             self.current_episode += 1
 
+        self.env.close()
         print("Training time: {:.4f}hrs".format((time.time() - t0) / 3600))
         # file.write("Training time: {:.4f}hrs\n".format((time.time() - t0) / 3600))
-        torch.save(self.model.state_dict(),
-                   os.path.join(self.model_path,
-                                "a2c_{}_{}.pth".format(total_episode_reward, self.current_episode)))
+        torch.save(self.model.state_dict(), os.path.join(self.model_path, "a2c_entropy_{}.pth".format(self.current_episode)))
 
