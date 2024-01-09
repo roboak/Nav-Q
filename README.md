@@ -1,3 +1,5 @@
+# Nav-Q: Quantum Deep Reinforcement Learning for Collision-Free Navigation of Self-Driving Cars
+
 This repository includes the implementation for Nav-Q [[Sinha et al., 2023]][Nav-Q]
 
 ### Overview
