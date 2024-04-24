@@ -102,20 +102,20 @@ class SharedNetworkScaled(nn.Module):
         return hx, cx
 
 class ValueNetwork(nn.Module):
-    def __init__(self, input_dim=256):
+    def __init__(self, input_dim=32):
         super(ValueNetwork, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 64)
-        self.layer_norm1 = nn.LayerNorm([64])
-        self.fc2 = nn.Linear(64, 1)
-        nn.init.orthogonal_(self.fc1.weight, np.sqrt(2))
-        nn.init.orthogonal_(self.fc2.weight, np.sqrt(2))
+        self.fc1 = nn.Linear(input_dim, 1)
+        # self.layer_norm1 = nn.LayerNorm([64])
+        # self.fc2 = nn.Linear(64, 1)
+        # nn.init.orthogonal_(self.fc1.weight, np.sqrt(2))
+        # nn.init.orthogonal_(self.fc2.weight, np.sqrt(2))
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = self.relu(self.layer_norm1(self.fc1(x)))
-        # x = self.relu(self.fc1(x))
+        # x = self.relu(self.layer_norm1(self.fc1(x)))
+        x = self.relu(self.fc1(x))
 
-        x = self.fc2(x)
+        # x = self.fc2(x)
         return x
 
 
