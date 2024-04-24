@@ -41,8 +41,10 @@ def _ansatz_1(n_qubits, y_weight, z_weight, gate_control_noise=False):
             qml.RY(y_weight, wires=wire)
         for wire, z_weight in enumerate(z_weight):
             qml.RZ(z_weight, wires=wire)
-    for wire in range(n_qubits):
-        qml.CZ(wires=[wire, (wire + 1) % n_qubits])
+            
+    if n_qubits != 1:
+        for wire in range(n_qubits):
+            qml.CZ(wires=[wire, (wire + 1) % n_qubits])
 
     # qml.Barrier(only_visual =True)
 
